@@ -51,26 +51,33 @@ def retrieve(query, top_k=3):
     query_embedding = model.encode([query])[0]
     similarities = np.dot(embeddings, query_embedding)
     top_indices = np.argsort(similarities)[-top_k:][::-1]
+
     return [sample_chunks[i] for i in top_indices]
 
 def generate_answer(query):
     docs = retrieve(query)
-    context = " ".join(docs)
-    return f"Based on the podcast transcripts: {context[:1000]}"
+
+    main_answer = docs[0][:900]
+
+    return (
+        "Based on the most relevant retrieved podcast transcript section:\n\n"
+        + main_answer
+    )
 
 query = st.text_input("Ask a question about the Lex Fridman Podcast:")
 
 if query:
     with st.spinner("Searching podcast transcripts..."):
         answer = generate_answer(query)
+        retrieved_docs = retrieve(query)
 
     st.subheader("Answer")
     st.write(answer)
 
     st.subheader("Retrieved Transcript Chunks")
-    for i, doc in enumerate(retrieve(query), start=1):
+    for i, doc in enumerate(retrieved_docs, start=1):
         st.write(f"Chunk {i}")
-        st.write(doc[:700])
+        st.write(doc[:500] + "...")
 
     st.subheader("User Question")
     st.write(query)
