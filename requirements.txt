@@ -1,5 +1,6 @@
 streamlit
 pandas
 kagglehub
-chromadb
+chromadb==0.5.23
 sentence-transformers
+protobuf==4.25.3
