@@ -1,89 +1,88 @@
 import streamlit as st
 import pandas as pd
 import kagglehub
-import chromadb
-
 from sentence_transformers import SentenceTransformer
+import numpy as np
 
 st.set_page_config(page_title="Lex Fridman Podcast Chatbot")
 
 st.title("Lex Fridman Podcast Chatbot")
 
 st.write(
-    "This app follows the same workflow used in the notebook: dataset loading, "
-    "text splitting, embeddings, ChromaDB vector storage, retrieval, and basic "
-    "RAG-style answer generation."
+    "This chatbot retrieves podcast transcript content using sentence embeddings "
+    "and semantic similarity search."
 )
 
-@st.cache_resource
-def create_vector_database():
-    dataset_path = kagglehub.dataset_download(
-        "rajneesh231/lex-fridman-podcast-transcript"
+# load dataset
+@st.cache_data
+def load_data():
+
+    path = kagglehub.dataset_download(
+        "asaniczka/lex-fridman-podcast-transcript"
     )
 
-    df = pd.read_csv(dataset_path + "/podcastdata_dataset.csv")
-    texts = df["text"].dropna().tolist()
+    df = pd.read_csv(path + "/transcript.csv")
 
-    chunks = []
+    return df
 
-    chunk_size = 1000
-    overlap = 200
+df = load_data()
 
-    for text in texts:
-        start = 0
-        while start < len(text):
-            end = start + chunk_size
-            chunk = text[start:end]
-            chunks.append(chunk)
-            start = end - overlap
+# extract text
+texts = df["text"].dropna().tolist()
 
-    sample_chunks = chunks[:500]
+# use smaller sample for deployment speed
+sample_texts = texts[:300]
+
+# load embedding model
+@st.cache_resource
+def load_model():
 
     model = SentenceTransformer("all-MiniLM-L6-v2")
-    embeddings = model.encode(sample_chunks)
 
-    client = chromadb.Client()
-    collection = client.get_or_create_collection(name="podcast")
+    return model
 
-    if collection.count() == 0:
-        for i, emb in enumerate(embeddings):
-            collection.add(
-                embeddings=[emb.tolist()],
-                documents=[sample_chunks[i]],
-                ids=[str(i)]
-            )
+model = load_model()
 
-    return model, collection
+# create embeddings
+@st.cache_resource
+def create_embeddings(texts):
 
+    embeddings = model.encode(texts)
+
+    return embeddings
+
+embeddings = create_embeddings(sample_texts)
+
+# retrieval function
 def retrieve(query, top_k=3):
-    model, collection = create_vector_database()
 
     query_embedding = model.encode([query])[0]
 
-    results = collection.query(
-        query_embeddings=[query_embedding.tolist()],
-        n_results=top_k
-    )
+    similarities = np.dot(embeddings, query_embedding)
 
-    return results["documents"][0]
+    top_indices = np.argsort(similarities)[-top_k:][::-1]
 
-def generate_answer(query):
-    docs = retrieve(query)
+    results = [sample_texts[i] for i in top_indices]
 
-    context = " ".join(docs)
+    return results
 
-    answer = f"Based on the podcast transcripts: {context[:1000]}"
-
-    return answer
-
-query = st.text_input("Ask a question about the Lex Fridman Podcast:")
+# chatbot UI
+query = st.text_input("Ask a question about the podcast:")
 
 if query:
-    with st.spinner("Searching podcast transcripts..."):
-        answer = generate_answer(query)
+
+    docs = retrieve(query)
+
+    answer = " ".join(docs)
 
     st.subheader("Answer")
-    st.write(answer)
 
-    st.subheader("User Question")
-    st.write(query)
+    st.write(answer[:2000])
+
+    st.subheader("Retrieved Transcript Chunks")
+
+    for i, doc in enumerate(docs):
+
+        st.write(f"Chunk {i+1}")
+
+        st.write(doc[:1000])
